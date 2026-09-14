@@ -5,7 +5,7 @@
 // Source: a values-only mirror of Data Input _ 2026_CRM_connected.xlsx,
 // kept in sync by sync_master_to_sheets.py.
 // ───────────────────────────────────────────────────────────
-console.log('%c[cb-snapshot] FILE VERSION: v4-offset-fix-SP+1', 'background:#00BBEA;color:#002147;font-weight:bold;padding:2px 6px;');
+console.log('%c[cb-snapshot] FILE VERSION: v5-actuals-date-fix', 'background:#00BBEA;color:#002147;font-weight:bold;padding:2px 6px;');
 
 const SHEET_ID = '1005P8SB3pRzdyO8KVENaBWR7sqnXBudCk_ITAvJ5jB4';
 const CACHE_KEY = 'cb_snapshot_cache_v1';
@@ -144,35 +144,22 @@ function parseDetailRows(rows) {
   return out;
 }
 
-// "2026 Actuals" is a small, simple monthly table — header text IS present there
-// (confirmed), so name-based matching stays fine for this one tab.
-function buildColumnMap(headerRow, names) {
-  const map = {};
-  for (const name of names) {
-    const idx = headerRow.findIndex(c => str(c).toLowerCase().startsWith(name.toLowerCase()));
-    map[name] = idx;
-  }
-  return map;
-}
-
-const ACTUALS_COLS = ['Month', 'Revenue (Total)', 'Total Spend', 'Working Marketing Spend', 'Leads From CRM', 'APCs'];
-
+// "2026 Actuals" — Month is also a gviz Date cell (not text), so parse it the same way.
+// Columns are fixed and confirmed directly against known values: Revenue Total(4),
+// Total Spend(5), Working Marketing Spend(6), Leads From CRM(8), APCs(9).
 function parseActualsRows(rows) {
-  if (!rows.length) return [];
-  const header = rows[0];
-  const col = buildColumnMap(header, ACTUALS_COLS);
   const out = [];
-  for (let i = 1; i < rows.length; i++) {
+  for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
-    const month = str(r[col['Month']]);
-    if (!MONTH_NUM[month]) continue;
+    const d = parseGvizDate(r[0]);
+    if (!d) continue;
     out.push({
-      month, monthNum: MONTH_NUM[month],
-      revenueTotal: col['Revenue (Total)'] !== -1 ? num(r[col['Revenue (Total)']]) : 0,
-      totalSpend: col['Total Spend'] !== -1 ? num(r[col['Total Spend']]) : 0,
-      workingSpend: col['Working Marketing Spend'] !== -1 ? num(r[col['Working Marketing Spend']]) : 0,
-      leads: col['Leads From CRM'] !== -1 ? num(r[col['Leads From CRM']]) : 0,
-      apcs: col['APCs'] !== -1 ? num(r[col['APCs']]) : 0,
+      month: MONTH_ORDER[d.monthNum - 1], monthNum: d.monthNum, year: d.year,
+      revenueTotal: num(r[4]),
+      totalSpend: num(r[5]),
+      workingSpend: num(r[6]),
+      leads: num(r[8]),
+      apcs: num(r[9]),
     });
   }
   return out;
@@ -323,7 +310,7 @@ function computeSnapshot({ leadRows: leadRowsAll, oaRows: oaRowsAll, apcRows: ap
 
   // ── Actuals-derived monthly figures (Spend/Revenue/ROAS) ──
   const actualsByMonth = {};
-  actualsRows.forEach(r => { actualsByMonth[r.monthNum] = r; });
+  actualsRows.filter(r => r.year === year).forEach(r => { actualsByMonth[r.monthNum] = r; });
   let ytdSpend = 0, ytdRevenueThruLastReliable = 0, ytdRevenueMonths = 0, lastReliableRevMonth = 0;
   for (let m = 1; m <= mNum; m++) {
     const a = actualsByMonth[m];
@@ -391,18 +378,6 @@ async function fetchAll() {
   if (typeof window !== 'undefined') {
     console.log('[cb-snapshot] raw row counts:', { lead: leadRaw.length, oa: oaRaw.length, apc: apcRaw.length, actuals: actualsRaw.length });
     window.__cbSnapshotRaw = { leadRaw, oaRaw, apcRaw, actualsRaw };
-    console.log('[cb-snapshot] first 3 raw actuals rows:', actualsRaw.slice(0, 3));
-    for (const [name, raw] of [['LEAD', leadRaw], ['OA', oaRaw], ['APC', apcRaw]]) {
-      const dc = findDateColIndex(raw);
-      const sampleRowIdx = raw.findIndex((r, i) => i > 0 && r[dc] && parseGvizDate(r[dc]));
-      const sample = sampleRowIdx > -1 ? raw[sampleRowIdx] : null;
-      console.log(`[cb-snapshot] ${name} dateCol=${dc}, sample row ${sampleRowIdx}:`, sample);
-      if (sample) {
-        const window_ = {};
-        for (let off = -1; off <= 32; off++) window_[`+${off}`] = sample[dc + off];
-        console.log(`[cb-snapshot] ${name} values around dateCol:`, window_);
-      }
-    }
   }
 
   const leadRows = parseDetailRows(leadRaw);
