@@ -140,8 +140,8 @@ function Dashboard() {
           <div className="panel panel-dark"><div className="panel-head">Mon–Wed Check: Lag Sanity Read</div><div className="panel-body">
             {snap.monWedComparison ? (
               <>
-                <div className="note">Same three weekdays, one week apart — catches conversions that lag past the full-week cutoff above.</div>
-                <div style={{ marginTop: 8 }}><SegTable title="Offer Accepted" prev={snap.monWedComparison.oa.prev} curr={snap.monWedComparison.oa.curr} prevLabel="Last wk" currLabel="This wk" pctDelta={pctDelta} /></div>
+                <div className="note">Last complete Mon–Wed vs the same three days one week earlier — catches conversions that lag past the full-week cutoff above.</div>
+                <div style={{ marginTop: 8 }}><SegTable title="Offer Accepted" prev={snap.monWedComparison.oa.prev} curr={snap.monWedComparison.oa.curr} prevLabel={snap.monWedComparison.label.prev} currLabel={snap.monWedComparison.label.curr} pctDelta={pctDelta} /></div>
               </>
             ) : <div className="note">Not enough recent data to compute this yet.</div>}
           </div></div>

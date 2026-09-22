@@ -5,11 +5,11 @@
 // Source: a values-only mirror of Data Input _ 2026_CRM_connected.xlsx,
 // kept in sync by sync_master_to_sheets.py.
 // ───────────────────────────────────────────────────────────
-console.log('%c[cb-snapshot] FILE VERSION: v5-actuals-date-fix', 'background:#00BBEA;color:#002147;font-weight:bold;padding:2px 6px;');
+console.log('%c[cb-snapshot] FILE VERSION: v6-actuals-text-month-fallback', 'background:#00BBEA;color:#002147;font-weight:bold;padding:2px 6px;');
 
 const SHEET_ID = '1005P8SB3pRzdyO8KVENaBWR7sqnXBudCk_ITAvJ5jB4';
-const CACHE_KEY = 'cb_snapshot_cache_v1';
-const CACHE_TS_KEY = 'cb_snapshot_cache_ts_v1';
+const CACHE_KEY = 'cb_snapshot_cache_v2';
+const CACHE_TS_KEY = 'cb_snapshot_cache_ts_v2';
 
 const TABS = {
   LEAD: 'By Type Lead (Detailed)',
@@ -144,23 +144,48 @@ function parseDetailRows(rows) {
   return out;
 }
 
-// "2026 Actuals" — Month is also a gviz Date cell (not text), so parse it the same way.
+// "2026 Actuals" — Month is a real gviz Date cell for closed-out years (2022-2025), but
+// the in-progress year's rows are typed into the sheet as plain month-name text
+// ("January", or "November 2025"/"December 2025" for the two trailing-context rows)
+// instead of real dates. gviz infers ONE type per column for the whole requested range;
+// since the range is date-dominated, those text cells come back with a null value
+// (dropped entirely, not even the formatted string survives) — which used to make the
+// current year's spend/revenue vanish. Their OTHER columns (spend, leads, APCs...) come
+// back fine though, so instead of trying to recover the label's text, we reconstruct it
+// positionally: any run of null-date-but-has-data rows immediately following a real
+// dated row is that year's next consecutive months. Capped at 12 so the trailing
+// "Grand Total" / archived-year rows (which also have data, just no month) don't get
+// misread as spillover months once a full year has been walked.
 // Columns are fixed and confirmed directly against known values: Revenue Total(4),
 // Total Spend(5), Working Marketing Spend(6), Leads From CRM(8), APCs(9).
 function parseActualsRows(rows) {
   const out = [];
-  for (let i = 0; i < rows.length; i++) {
-    const r = rows[i];
-    const d = parseGvizDate(r[0]);
-    if (!d) continue;
+  const pushRow = (r, monthNum, year) => {
     out.push({
-      month: MONTH_ORDER[d.monthNum - 1], monthNum: d.monthNum, year: d.year,
+      month: MONTH_ORDER[monthNum - 1], monthNum, year,
       revenueTotal: num(r[4]),
       totalSpend: num(r[5]),
       workingSpend: num(r[6]),
       leads: num(r[8]),
       apcs: num(r[9]),
     });
+  };
+  let pendingMonth = null, pendingYear = null, advancedCount = 0;
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const d = parseGvizDate(r[0]);
+    if (d) {
+      pushRow(r, d.monthNum, d.year);
+      pendingMonth = d.monthNum; pendingYear = d.year; advancedCount = 0;
+      continue;
+    }
+    if (pendingMonth == null || advancedCount >= 12) continue;
+    const hasData = r.slice(1).some((c) => c != null && c !== '');
+    if (!hasData) continue;
+    pendingMonth += 1;
+    if (pendingMonth > 12) { pendingMonth = 1; pendingYear += 1; }
+    advancedCount += 1;
+    pushRow(r, pendingMonth, pendingYear);
   }
   return out;
 }
@@ -251,29 +276,30 @@ function computeSnapshot({ leadRows: leadRowsAll, oaRows: oaRowsAll, apcRows: ap
   const wowAPCCurr = byWeek(apcRows, lastWeek);
 
   // ── Mon–Wed same-weekday comparison (lag sanity check) ──
-  // Finds the most recent Mon/Tue/Wed triplet at or before the anchor date, and the
-  // one immediately preceding it (7 days earlier), by ordinal day number.
+  // Uses the most recent *complete* Mon–Wed (its Wednesday on or before the anchor date)
+  // and the same three days 7 days earlier, so both sides always cover 3 full days.
+  // Real Date arithmetic so windows spanning a month boundary stay intact.
   const ordinal = (r) => r.year * 10000 + r.monthNum * 100 + r.date;
-  function monWedWindow(rows, anchorOrdinal) {
-    const monRow = rows.find(r => r.dayOfWeek === 'Monday' && ordinal(r) <= anchorOrdinal &&
-      ordinal(r) === Math.max(...rows.filter(x => x.dayOfWeek === 'Monday' && ordinal(x) <= anchorOrdinal).map(ordinal)));
-    if (!monRow) return null;
-    const monOrd = ordinal(monRow);
-    const inWindow = rows.filter(r => {
-      const o = ordinal(r);
-      return o >= monOrd && o <= monOrd + 2 && ['Monday', 'Tuesday', 'Wednesday'].includes(r.dayOfWeek);
-    });
-    return { anchorOrdinal: monOrd, rows: inWindow };
-  }
-  const anchorOrd = year * 10000 + mNum * 100 + day;
-  const thisWindow = monWedWindow(leadRows, anchorOrd);
-  const prevWindow = thisWindow ? monWedWindow(leadRows, thisWindow.anchorOrdinal - 4) : null; // jump back a week
+  const dayMs = 86400000;
+  const anchorDate = new Date(Date.UTC(year, mNum - 1, day));
+  const daysBackToWed = (anchorDate.getUTCDay() - 3 + 7) % 7; // 0=Sun..6=Sat, Wed=3
+  const lastWed = new Date(anchorDate.getTime() - daysBackToWed * dayMs);
+  const windowOrds = (wed) => [2, 1, 0].map(back => {
+    const d = new Date(wed.getTime() - back * dayMs);
+    return d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate();
+  });
+  const fmtOrd = (o) => `${MONTH_ORDER[Math.floor(o / 100) % 100 - 1].slice(0, 3)} ${o % 100}`;
+  const thisOrds = windowOrds(lastWed);
+  const prevOrds = windowOrds(new Date(lastWed.getTime() - 7 * dayMs));
   function segFromOrds(rows, ords) { return sumSeg(rows.filter(r => ords.includes(ordinal(r)))); }
   let monWedComparison = null;
-  if (thisWindow && prevWindow) {
-    const thisOrds = thisWindow.rows.map(ordinal);
-    const prevOrds = prevWindow.rows.map(ordinal);
+  const hasAllDays = (ords) => ords.every(o => leadRows.some(r => ordinal(r) === o));
+  if (hasAllDays(thisOrds) && hasAllDays(prevOrds)) {
     monWedComparison = {
+      label: {
+        prev: `${fmtOrd(prevOrds[0])}–${fmtOrd(prevOrds[2])}`,
+        curr: `${fmtOrd(thisOrds[0])}–${fmtOrd(thisOrds[2])}`,
+      },
       lead: { prev: segFromOrds(leadRows, prevOrds), curr: segFromOrds(leadRows, thisOrds) },
       oa: { prev: segFromOrds(oaRows, prevOrds), curr: segFromOrds(oaRows, thisOrds) },
       apc: { prev: segFromOrds(apcRows, prevOrds), curr: segFromOrds(apcRows, thisOrds) },
