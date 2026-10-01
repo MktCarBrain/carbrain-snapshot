@@ -152,8 +152,8 @@ function OverviewTab({ snap }) {
         <div className="panel panel-dark"><div className="panel-head">Mon–Wed Check: Lag Sanity Read</div><div className="panel-body">
           {snap.monWedComparison ? (
             <>
-              <div className="note">Last complete Mon–Wed vs the same three days one week earlier — catches conversions that lag past the full-week cutoff above.</div>
-              <div style={{ marginTop: 8 }}><SegTable title="Offer Accepted" prev={snap.monWedComparison.oa.prev} curr={snap.monWedComparison.oa.curr} prevLabel={snap.monWedComparison.label.prev} currLabel={snap.monWedComparison.label.curr} pctDelta={pctDelta} /></div>
+              <div className="note">Same three weekdays, one week apart — catches conversions that lag past the full-week cutoff above.</div>
+              <div style={{ marginTop: 8 }}><SegTable title="Offer Accepted" prev={snap.monWedComparison.oa.prev} curr={snap.monWedComparison.oa.curr} prevLabel="Last wk" currLabel="This wk" pctDelta={pctDelta} /></div>
             </>
           ) : <div className="note">Not enough recent data to compute this yet.</div>}
         </div></div>
@@ -308,6 +308,137 @@ function PurchaseSalesTab() {
   );
 }
 
+// ─── Scenario Predictor tab (new — live CPL/CPA ceiling calculator) ──────
+const SEG_REFERENCE = {
+  SP:          { profitUnit: 112.47,  color: '#6B7A8F' },
+  Parts:       { profitUnit: 281.99,  color: '#0F9D58' },
+  Priority:    { profitUnit: 929.36,  color: '#00BBEA' },
+  Premium:     { profitUnit: 2275.62, color: '#002147' },
+  'No Offers': { profitUnit: 0,       color: '#C7CDD4' },
+};
+const TODAY_SHARES = { SP: 42.4, Parts: 34.4, Priority: 13.4, Premium: 5.7, 'No Offers': 4.1 };
+const TODAY_PRS = { SP: 7.94, Parts: 3.63, Priority: 6.56, Premium: 6.93 };
+const EFFICIENCY_RATIO = 2.49;
+
+function Slider({ label, value, onChange, min, max, step, unit, disabled }) {
+  return (
+    <div className="slider-row">
+      <div className="slider-label"><span>{label}</span><span className="slider-value">{disabled ? '—' : `${value.toFixed(step < 1 ? 1 : 0)}${unit}`}</span></div>
+      <input
+        type="range" min={min} max={max} step={step} value={value} disabled={disabled}
+        onChange={e => onChange(parseFloat(e.target.value))}
+        className="range-slider"
+      />
+    </div>
+  );
+}
+
+function ScenarioPredictorTab() {
+  const [shares, setShares] = useState({ ...TODAY_SHARES });
+  const [prs, setPrs] = useState({ ...TODAY_PRS });
+  const [targetCPL, setTargetCPL] = useState(25);
+
+  const segments = ['SP', 'Parts', 'Priority', 'Premium', 'No Offers'];
+  const totalShare = segments.reduce((a, s) => a + shares[s], 0);
+
+  const profitPerLead = segments.reduce((sum, seg) => {
+    const pr = seg === 'No Offers' ? 0 : prs[seg];
+    return sum + (shares[seg] / 100) * (pr / 100) * SEG_REFERENCE[seg].profitUnit;
+  }, 0);
+  const blendedPR = segments.reduce((sum, seg) => {
+    const pr = seg === 'No Offers' ? 0 : prs[seg];
+    return sum + (shares[seg] / 100) * (pr / 100);
+  }, 0);
+  const profitPerAPC = blendedPR > 0 ? profitPerLead / blendedPR : null;
+  const breakevenCPL = profitPerLead;
+  const breakevenCPA = profitPerAPC;
+  const maintainCPL = profitPerLead / EFFICIENCY_RATIO;
+  const maintainCPA = profitPerAPC != null ? profitPerAPC / EFFICIENCY_RATIO : null;
+
+  // Reverse: min P+P% needed for the target CPL, using today's Priority:Premium (70:30) and SP:Parts:NoOffers blend as the fixed internal split
+  const nonPPProfitPerLeadUnit = 0.5246 * (TODAY_PRS.SP / 100) * SEG_REFERENCE.SP.profitUnit
+    + 0.4251 * (TODAY_PRS.Parts / 100) * SEG_REFERENCE.Parts.profitUnit
+    + 0.0503 * 0;
+  const ppProfitPerLeadUnit = 0.6995 * (TODAY_PRS.Priority / 100) * SEG_REFERENCE.Priority.profitUnit
+    + 0.3005 * (TODAY_PRS.Premium / 100) * SEG_REFERENCE.Premium.profitUnit;
+  const minPPBreakeven = Math.max(0, Math.min(100, ((targetCPL - nonPPProfitPerLeadUnit) / (ppProfitPerLeadUnit - nonPPProfitPerLeadUnit)) * 100));
+  const minPPMaintain = ((targetCPL * EFFICIENCY_RATIO - nonPPProfitPerLeadUnit) / (ppProfitPerLeadUnit - nonPPProfitPerLeadUnit)) * 100;
+
+  const updateShare = (seg, val) => setShares(s => ({ ...s, [seg]: val }));
+  const updatePR = (seg, val) => setPrs(p => ({ ...p, [seg]: val }));
+  const resetToday = () => { setShares({ ...TODAY_SHARES }); setPrs({ ...TODAY_PRS }); };
+  const normalize = () => {
+    if (totalShare === 0) return;
+    const ns = {};
+    segments.forEach(s => { ns[s] = Math.round((shares[s] / totalShare) * 1000) / 10; });
+    setShares(ns);
+  };
+  const setPreset100PP = () => setShares({ SP: 0, Parts: 0, Priority: 70, Premium: 30, 'No Offers': 0 });
+
+  const totalOk = Math.abs(totalShare - 100) < 0.3;
+
+  return (
+    <>
+      <div className="alert-box" style={{ marginBottom: 18 }}>
+        <b>What can we pay, based on mix?</b> Move the sliders below. Profit/Unit per segment is a fixed, historical fact (not adjustable) — Share % and Purchase Rate are the levers. Everything recalculates instantly.
+      </div>
+
+      <div className="section-label"><span className="dot" />SET YOUR LEAD MIX</div>
+      <div className="panels">
+        <div className="panel" style={{ gridColumn: '1 / -1' }}>
+          <div className="panel-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>Share of Leads &amp; Purchase Rate — by segment</span>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="dl-btn" onClick={resetToday}>↺ Today's Mix</button>
+              <button className="dl-btn" onClick={setPreset100PP}>⚡ 100% P+P (theoretical)</button>
+            </div>
+          </div>
+          <div className="panel-body">
+            <div className="scenario-grid">
+              {segments.map(seg => (
+                <div key={seg} className="scenario-seg-card" style={{ borderLeftColor: SEG_REFERENCE[seg].color }}>
+                  <div className="scenario-seg-name">{seg}</div>
+                  <Slider label="Share of Leads" value={shares[seg]} onChange={v => updateShare(seg, v)} min={0} max={100} step={0.5} unit="%" />
+                  <Slider label="Purchase Rate" value={seg === 'No Offers' ? 0 : prs[seg]} onChange={v => updatePR(seg, v)} min={0} max={15} step={0.1} unit="%" disabled={seg === 'No Offers'} />
+                  <div className="scenario-profit-ref">Profit/Unit: <b>{fmtMoney(SEG_REFERENCE[seg].profitUnit)}</b></div>
+                </div>
+              ))}
+            </div>
+            <div className={`total-share-indicator ${totalOk ? 'ok' : 'warn'}`}>
+              Total Share: <b>{totalShare.toFixed(1)}%</b> {totalOk ? '✓' : '— should sum to 100%'}
+              {!totalOk && <button className="dl-btn" style={{ marginLeft: 10 }} onClick={normalize}>Normalize to 100%</button>}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="section-label"><span className="dot" />RESULTS FOR THIS MIX</div>
+      <div className="tiles">
+        <StatCard label="Profit / Lead" value={fmtMoney(profitPerLead)} sub="blended" />
+        <StatCard label="Resulting Purchase Rate" value={fmtPct(blendedPR * 100, 2)} sub="derived, not an input" />
+        <StatCard label="Profit / APC" value={profitPerAPC != null ? fmtMoney(profitPerAPC) : '—'} sub="blended" />
+      </div>
+      <div className="tiles" style={{ marginTop: 10 }}>
+        <StatCard label="Breakeven CPL" value={fmtMoney(breakevenCPL)} sub="ROI = 1.0x" />
+        <StatCard label="Breakeven CPA" value={breakevenCPA != null ? fmtMoney(breakevenCPA) : '—'} sub="ROI = 1.0x" />
+        <StatCard label="Maintain-Efficiency CPL" value={fmtMoney(maintainCPL)} sub={`today's ${EFFICIENCY_RATIO}x ratio`} />
+        <StatCard label="Maintain-Efficiency CPA" value={maintainCPA != null ? fmtMoney(maintainCPA) : '—'} sub={`today's ${EFFICIENCY_RATIO}x ratio`} />
+      </div>
+
+      <div className="section-label"><span className="dot" />REVERSE: GIVEN A TARGET CPL, WHAT P+P% DO I NEED?<span className="range"> — assumes today's Priority:Premium (70:30) split</span></div>
+      <div className="panels">
+        <div className="panel" style={{ gridColumn: '1 / -1' }}><div className="panel-body">
+          <Slider label="Target CPL" value={targetCPL} onChange={setTargetCPL} min={1} max={60} step={0.5} unit="" />
+          <div className="tiles" style={{ marginTop: 14 }}>
+            <StatCard label="Min. P+P% — Breakeven" value={fmtPct(minPPBreakeven, 1)} />
+            <StatCard label="Min. P+P% — Maintain Efficiency" value={minPPMaintain > 100 ? 'Not achievable' : fmtPct(minPPMaintain, 1)} />
+          </div>
+        </div></div>
+      </div>
+    </>
+  );
+}
+
 // ─── Root ────────────────────────────────────────────────
 function Dashboard() {
   const [snap, setSnap] = useState(null);
@@ -335,6 +466,7 @@ function Dashboard() {
   const TABS = [
     { key: 'overview', label: 'Overview' },
     { key: 'purchase-sales', label: 'Purchase & Sales' },
+    { key: 'scenario-predictor', label: 'Scenario Predictor' },
   ];
 
   return (
@@ -353,6 +485,7 @@ function Dashboard() {
       <main>
         {tab === 'overview' && <OverviewTab snap={snap} />}
         {tab === 'purchase-sales' && <PurchaseSalesTab />}
+        {tab === 'scenario-predictor' && <ScenarioPredictorTab />}
       </main>
 
       <footer>
