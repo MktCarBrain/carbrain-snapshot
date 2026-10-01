@@ -132,3 +132,32 @@ footer .fetch-ts { font-style: italic; color: #B6C0CC; }
 .total-share-indicator { margin-top: 16px; padding: 10px 14px; border-radius: 6px; font-size: 13px; font-weight: 700; }
 .total-share-indicator.ok { background: #EAF7EE; color: #0F6B3A; }
 .total-share-indicator.warn { background: #FFF1EE; color: #8B3A1A; }
+
+.scenario-predicted { display: flex; gap: 16px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed #D5DEE8; }
+.scenario-predicted > div { display: flex; flex-direction: column; font-size: 11px; color: #6B7A8F; }
+.scenario-predicted b { font-size: 14px; color: var(--cb-deep-blue); font-family: var(--font-secondary); }
+
+.number-input {
+  font-family: var(--font-secondary); font-weight: 800; font-size: 18px; color: var(--cb-deep-blue);
+  border: 1px solid #D5DEE8; border-radius: 6px; padding: 8px 12px; width: 150px;
+}
+
+.threshold-row { display: grid; grid-template-columns: 120px 1fr 56px auto; align-items: center; gap: 12px; margin-bottom: 10px; }
+.threshold-name { font-family: var(--font-secondary); font-weight: 700; font-size: 13px; color: var(--cb-deep-blue); }
+.threshold-track { position: relative; height: 18px; background: #EEF2F7; border-radius: 4px; overflow: visible; }
+.threshold-fill { position: absolute; top: 0; left: 0; height: 100%; border-radius: 4px; transition: width .2s ease; }
+.threshold-fill.clears { background: #8EEBFF; }
+.threshold-fill.below { background: #F7B9AC; }
+.threshold-marker {
+  position: absolute; top: -3px; bottom: -3px; width: 3px; background: #D9730D;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.8);
+}
+.threshold-value { font-weight: 800; font-size: 13px; text-align: right; }
+.threshold-value.clears { color: #0F6B3A; }
+.threshold-value.below { color: #B3321E; }
+.threshold-right { font-size: 11px; color: #6B7A8F; white-space: nowrap; }
+
+@media (max-width: 760px) {
+  .threshold-row { grid-template-columns: 90px 1fr 48px; }
+  .threshold-right { display: none; }
+}

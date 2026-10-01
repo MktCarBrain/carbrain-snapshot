@@ -308,7 +308,8 @@ function PurchaseSalesTab() {
   );
 }
 
-// ─── Scenario Predictor tab (new — live CPL/CPA ceiling calculator) ──────
+// ─── Scenario Predictor tab (expanded — Total Leads base, unit/profit
+// predictions, and real Channel + Theme bars against a dynamic threshold) ──
 const SEG_REFERENCE = {
   SP:          { profitUnit: 112.47,  color: '#6B7A8F' },
   Parts:       { profitUnit: 281.99,  color: '#0F9D58' },
@@ -319,6 +320,30 @@ const SEG_REFERENCE = {
 const TODAY_SHARES = { SP: 42.4, Parts: 34.4, Priority: 13.4, Premium: 5.7, 'No Offers': 4.1 };
 const TODAY_PRS = { SP: 7.94, Parts: 3.63, Priority: 6.56, Premium: 6.93 };
 const EFFICIENCY_RATIO = 2.49;
+const TODAY_TOTAL_LEADS = 325564; // Jan-Aug 2026 actual, for the "Today" reset
+
+// Real, validated figures from this conversation's analysis (APC 2025-2026 CRM,
+// Attribution Channel × Vehicle Type; Search Theme Yield). Not on a live feed —
+// update by hand alongside purchase-sales-data.jsx.
+const CHANNEL_REALITY = [
+  { name: 'Direct',      ppPct: 28.6, apcShare: 1806 / 19389 },
+  { name: 'SEO',         ppPct: 27.3, apcShare: 3014 / 19389 },
+  { name: 'PPC Search',  ppPct: 24.2, apcShare: 5283 / 19389 },
+  { name: 'PMax',        ppPct: 22.8, apcShare: 4160 / 19389 },
+  { name: 'Affiliate',   ppPct: 16.8, apcShare: 713 / 19389 },
+  { name: 'Paid Social', ppPct: 16.4, apcShare: 1400 / 19389 },
+  { name: 'Referral',    ppPct: 13.6, apcShare: 3013 / 19389 },
+];
+const THEME_REALITY = [
+  { name: 'PMax Priority', ppPct: 48.8, apcShare: 1364 / 7297 },
+  { name: 'Non-Running',   ppPct: 34.0, apcShare: 94 / 7297 },
+  { name: 'Brand',         ppPct: 26.4, apcShare: 1869 / 7297 },
+  { name: 'Engine',        ppPct: 25.6, apcShare: 1346 / 7297 },
+  { name: 'Damaged',       ppPct: 21.4, apcShare: 939 / 7297 },
+  { name: 'Accident',      ppPct: 14.7, apcShare: 590 / 7297 },
+  { name: 'Junk',          ppPct: 13.4, apcShare: 231 / 7297 },
+  { name: 'PMax General',  ppPct: 8.0,  apcShare: 864 / 7297 },
+];
 
 function Slider({ label, value, onChange, min, max, step, unit, disabled }) {
   return (
@@ -333,7 +358,26 @@ function Slider({ label, value, onChange, min, max, step, unit, disabled }) {
   );
 }
 
+function ThresholdBar({ name, actualPct, thresholdPct, rightLabel }) {
+  const clears = actualPct >= thresholdPct;
+  const scale = 60; // bar represents 0-60% visually
+  const fillPct = Math.min(100, (actualPct / scale) * 100);
+  const markerPct = Math.min(100, (thresholdPct / scale) * 100);
+  return (
+    <div className="threshold-row">
+      <div className="threshold-name">{name}</div>
+      <div className="threshold-track">
+        <div className={`threshold-fill ${clears ? 'clears' : 'below'}`} style={{ width: `${fillPct}%` }} />
+        <div className="threshold-marker" style={{ left: `${markerPct}%` }} title={`Minimum needed: ${thresholdPct.toFixed(1)}%`} />
+      </div>
+      <div className={`threshold-value ${clears ? 'clears' : 'below'}`}>{actualPct.toFixed(1)}%</div>
+      {rightLabel && <div className="threshold-right">{rightLabel}</div>}
+    </div>
+  );
+}
+
 function ScenarioPredictorTab() {
+  const [totalLeads, setTotalLeads] = useState(467000);
   const [shares, setShares] = useState({ ...TODAY_SHARES });
   const [prs, setPrs] = useState({ ...TODAY_PRS });
   const [targetCPL, setTargetCPL] = useState(25);
@@ -341,15 +385,19 @@ function ScenarioPredictorTab() {
   const segments = ['SP', 'Parts', 'Priority', 'Premium', 'No Offers'];
   const totalShare = segments.reduce((a, s) => a + shares[s], 0);
 
-  const profitPerLead = segments.reduce((sum, seg) => {
+  // Per-segment unit + profit predictions, driven by Total Leads
+  const segmentDetail = segments.map(seg => {
     const pr = seg === 'No Offers' ? 0 : prs[seg];
-    return sum + (shares[seg] / 100) * (pr / 100) * SEG_REFERENCE[seg].profitUnit;
-  }, 0);
-  const blendedPR = segments.reduce((sum, seg) => {
-    const pr = seg === 'No Offers' ? 0 : prs[seg];
-    return sum + (shares[seg] / 100) * (pr / 100);
-  }, 0);
-  const profitPerAPC = blendedPR > 0 ? profitPerLead / blendedPR : null;
+    const units = totalLeads * (shares[seg] / 100) * (pr / 100);
+    const profit = units * SEG_REFERENCE[seg].profitUnit;
+    return { seg, units, profit };
+  });
+  const totalUnits = segmentDetail.reduce((a, d) => a + d.units, 0);
+  const totalProfit = segmentDetail.reduce((a, d) => a + d.profit, 0);
+
+  const profitPerLead = totalLeads > 0 ? totalProfit / totalLeads : 0;
+  const blendedPR = totalLeads > 0 ? totalUnits / totalLeads : 0;
+  const profitPerAPC = totalUnits > 0 ? totalProfit / totalUnits : null;
   const breakevenCPL = profitPerLead;
   const breakevenCPA = profitPerAPC;
   const maintainCPL = profitPerLead / EFFICIENCY_RATIO;
@@ -361,12 +409,12 @@ function ScenarioPredictorTab() {
     + 0.0503 * 0;
   const ppProfitPerLeadUnit = 0.6995 * (TODAY_PRS.Priority / 100) * SEG_REFERENCE.Priority.profitUnit
     + 0.3005 * (TODAY_PRS.Premium / 100) * SEG_REFERENCE.Premium.profitUnit;
-  const minPPBreakeven = Math.max(0, Math.min(100, ((targetCPL - nonPPProfitPerLeadUnit) / (ppProfitPerLeadUnit - nonPPProfitPerLeadUnit)) * 100));
+  const minPPBreakeven = Math.max(0, ((targetCPL - nonPPProfitPerLeadUnit) / (ppProfitPerLeadUnit - nonPPProfitPerLeadUnit)) * 100);
   const minPPMaintain = ((targetCPL * EFFICIENCY_RATIO - nonPPProfitPerLeadUnit) / (ppProfitPerLeadUnit - nonPPProfitPerLeadUnit)) * 100;
 
   const updateShare = (seg, val) => setShares(s => ({ ...s, [seg]: val }));
   const updatePR = (seg, val) => setPrs(p => ({ ...p, [seg]: val }));
-  const resetToday = () => { setShares({ ...TODAY_SHARES }); setPrs({ ...TODAY_PRS }); };
+  const resetToday = () => { setTotalLeads(TODAY_TOTAL_LEADS); setShares({ ...TODAY_SHARES }); setPrs({ ...TODAY_PRS }); };
   const normalize = () => {
     if (totalShare === 0) return;
     const ns = {};
@@ -380,29 +428,45 @@ function ScenarioPredictorTab() {
   return (
     <>
       <div className="alert-box" style={{ marginBottom: 18 }}>
-        <b>What can we pay, based on mix?</b> Move the sliders below. Profit/Unit per segment is a fixed, historical fact (not adjustable) — Share % and Purchase Rate are the levers. Everything recalculates instantly.
+        <b>Measurement + projection, in one tool.</b> Set a lead volume and mix to project units and profit. Use the Target CPL below to see the minimum P+P% required — then check which real channels and themes already clear that bar.
       </div>
 
-      <div className="section-label"><span className="dot" />SET YOUR LEAD MIX</div>
+      <div className="section-label"><span className="dot" />TOTAL LEAD VOLUME<span className="range"> — the base everything else scales from</span></div>
+      <div className="panels">
+        <div className="panel" style={{ gridColumn: '1 / -1' }}><div className="panel-body">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+            <label style={{ fontFamily: 'var(--font-secondary)', fontWeight: 700, color: 'var(--cb-deep-blue)', fontSize: 13 }}>Total Leads (e.g. a 2027 target)</label>
+            <input
+              type="number" value={totalLeads} step={1000}
+              onChange={e => setTotalLeads(Math.max(0, parseInt(e.target.value) || 0))}
+              className="number-input"
+            />
+            <button className="dl-btn" onClick={resetToday}>↺ Today's Volume &amp; Mix ({fmtNum(TODAY_TOTAL_LEADS)})</button>
+            <button className="dl-btn" onClick={setPreset100PP}>⚡ 100% P+P (theoretical)</button>
+          </div>
+        </div></div>
+      </div>
+
+      <div className="section-label"><span className="dot" />SET YOUR MIX — UNITS &amp; PROFIT UPDATE LIVE</div>
       <div className="panels">
         <div className="panel" style={{ gridColumn: '1 / -1' }}>
-          <div className="panel-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>Share of Leads &amp; Purchase Rate — by segment</span>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="dl-btn" onClick={resetToday}>↺ Today's Mix</button>
-              <button className="dl-btn" onClick={setPreset100PP}>⚡ 100% P+P (theoretical)</button>
-            </div>
-          </div>
           <div className="panel-body">
             <div className="scenario-grid">
-              {segments.map(seg => (
-                <div key={seg} className="scenario-seg-card" style={{ borderLeftColor: SEG_REFERENCE[seg].color }}>
-                  <div className="scenario-seg-name">{seg}</div>
-                  <Slider label="Share of Leads" value={shares[seg]} onChange={v => updateShare(seg, v)} min={0} max={100} step={0.5} unit="%" />
-                  <Slider label="Purchase Rate" value={seg === 'No Offers' ? 0 : prs[seg]} onChange={v => updatePR(seg, v)} min={0} max={15} step={0.1} unit="%" disabled={seg === 'No Offers'} />
-                  <div className="scenario-profit-ref">Profit/Unit: <b>{fmtMoney(SEG_REFERENCE[seg].profitUnit)}</b></div>
-                </div>
-              ))}
+              {segments.map(seg => {
+                const d = segmentDetail.find(x => x.seg === seg);
+                return (
+                  <div key={seg} className="scenario-seg-card" style={{ borderLeftColor: SEG_REFERENCE[seg].color }}>
+                    <div className="scenario-seg-name">{seg}</div>
+                    <Slider label="Share of Leads" value={shares[seg]} onChange={v => updateShare(seg, v)} min={0} max={100} step={0.5} unit="%" />
+                    <Slider label="Purchase Rate" value={seg === 'No Offers' ? 0 : prs[seg]} onChange={v => updatePR(seg, v)} min={0} max={15} step={0.1} unit="%" disabled={seg === 'No Offers'} />
+                    <div className="scenario-profit-ref">Profit/Unit: <b>{fmtMoney(SEG_REFERENCE[seg].profitUnit)}</b></div>
+                    <div className="scenario-predicted">
+                      <div><span>Units</span><b>{fmtNum(d.units)}</b></div>
+                      <div><span>Profit</span><b>{fmtMoneyK(d.profit)}</b></div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
             <div className={`total-share-indicator ${totalOk ? 'ok' : 'warn'}`}>
               Total Share: <b>{totalShare.toFixed(1)}%</b> {totalOk ? '✓' : '— should sum to 100%'}
@@ -412,10 +476,11 @@ function ScenarioPredictorTab() {
         </div>
       </div>
 
-      <div className="section-label"><span className="dot" />RESULTS FOR THIS MIX</div>
+      <div className="section-label"><span className="dot" />PREDICTED TOTALS AT {fmtNum(totalLeads)} LEADS</div>
       <div className="tiles">
+        <StatCard label="Total Units (APC)" value={fmtNum(totalUnits)} sub={`${fmtPct(blendedPR * 100, 2)} blended PR`} />
+        <StatCard label="Total Profit" value={fmtMoneyK(totalProfit)} sub="at this mix" />
         <StatCard label="Profit / Lead" value={fmtMoney(profitPerLead)} sub="blended" />
-        <StatCard label="Resulting Purchase Rate" value={fmtPct(blendedPR * 100, 2)} sub="derived, not an input" />
         <StatCard label="Profit / APC" value={profitPerAPC != null ? fmtMoney(profitPerAPC) : '—'} sub="blended" />
       </div>
       <div className="tiles" style={{ marginTop: 10 }}>
@@ -425,7 +490,7 @@ function ScenarioPredictorTab() {
         <StatCard label="Maintain-Efficiency CPA" value={maintainCPA != null ? fmtMoney(maintainCPA) : '—'} sub={`today's ${EFFICIENCY_RATIO}x ratio`} />
       </div>
 
-      <div className="section-label"><span className="dot" />REVERSE: GIVEN A TARGET CPL, WHAT P+P% DO I NEED?<span className="range"> — assumes today's Priority:Premium (70:30) split</span></div>
+      <div className="section-label"><span className="dot" />SET A TARGET CPL → MINIMUM P+P% REQUIRED<span className="range"> — this becomes the threshold line in the bars below</span></div>
       <div className="panels">
         <div className="panel" style={{ gridColumn: '1 / -1' }}><div className="panel-body">
           <Slider label="Target CPL" value={targetCPL} onChange={setTargetCPL} min={1} max={60} step={0.5} unit="" />
@@ -433,6 +498,27 @@ function ScenarioPredictorTab() {
             <StatCard label="Min. P+P% — Breakeven" value={fmtPct(minPPBreakeven, 1)} />
             <StatCard label="Min. P+P% — Maintain Efficiency" value={minPPMaintain > 100 ? 'Not achievable' : fmtPct(minPPMaintain, 1)} />
           </div>
+        </div></div>
+      </div>
+
+      <div className="section-label"><span className="dot" />REALITY CHECK — BY CHANNEL<span className="range"> — actual P+P% vs. the breakeven line above (orange marker). 2026 data.</span></div>
+      <div className="panels">
+        <div className="panel" style={{ gridColumn: '1 / -1' }}><div className="panel-body">
+          {[...CHANNEL_REALITY].sort((a, b) => b.ppPct - a.ppPct).map(c => (
+            <ThresholdBar key={c.name} name={c.name} actualPct={c.ppPct} thresholdPct={minPPBreakeven}
+              rightLabel={`≈ ${fmtNum(totalLeads * c.apcShare * (blendedPR || 0.059))} units if scaled to ${fmtNum(totalLeads)} leads`} />
+          ))}
+          <div className="note" style={{ marginTop: 10 }}>CPL by channel isn't connected yet — bars above compare mix quality (P+P%) only. Flag if that's the next priority.</div>
+        </div></div>
+      </div>
+
+      <div className="section-label"><span className="dot" />REALITY CHECK — BY THEME<span className="range"> — paid search themes only. Jan–Aug 2026 vs. 2025.</span></div>
+      <div className="panels">
+        <div className="panel" style={{ gridColumn: '1 / -1' }}><div className="panel-body">
+          {[...THEME_REALITY].sort((a, b) => b.ppPct - a.ppPct).map(t => (
+            <ThresholdBar key={t.name} name={t.name} actualPct={t.ppPct} thresholdPct={minPPBreakeven}
+              rightLabel={`≈ ${fmtNum(totalLeads * t.apcShare * (blendedPR || 0.059))} units if scaled to ${fmtNum(totalLeads)} leads`} />
+          ))}
         </div></div>
       </div>
     </>
