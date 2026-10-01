@@ -3,6 +3,11 @@ window.CarBrainPurchaseSalesData = {
   asOf: 'Full Year 2026 YTD (thru Sep 28)',
   sourceNote: 'National Sale Performance Details (Copart/IAA, per-transaction) joined to APC export by Reference Number.',
 
+  grandTotal: {
+    nPurchased: 22084,
+    bySegmentCount: {"SP": 12222, "Parts": 4703, "Priority": 3562, "Premium": 1597},
+  },
+
   overall: {
       nPurchased: 9862,
       avgCost: 1655.66,
@@ -14,6 +19,7 @@ window.CarBrainPurchaseSalesData = {
       totalSale: 22468175.0,
       totalProfit: 7046029.0,
       margin: 31.4,
+      avgProfit: 814.76,
   },
 
   spSummary: {
@@ -36,6 +42,7 @@ window.CarBrainPurchaseSalesData = {
         totalSale: 3591150.0,
         totalProfit: 1117753.0,
         margin: 31.1,
+        avgProfit: 266.96,
     },
     'Priority': {
         nPurchased: 3562,
@@ -48,6 +55,7 @@ window.CarBrainPurchaseSalesData = {
         totalSale: 8254325.0,
         totalProfit: 2893005.0,
         margin: 35.0,
+        avgProfit: 925.47,
     },
     'Premium': {
         nPurchased: 1597,
@@ -60,6 +68,7 @@ window.CarBrainPurchaseSalesData = {
         totalSale: 10622700.0,
         totalProfit: 3035271.0,
         margin: 28.6,
+        avgProfit: 2273.61,
     },
   },
 
@@ -75,6 +84,7 @@ window.CarBrainPurchaseSalesData = {
         totalSale: 560900.0,
         totalProfit: 155343.0,
         margin: 27.7,
+        avgProfit: 573.22,
     },
     'Direct': {
         nPurchased: 1064,
@@ -87,6 +97,7 @@ window.CarBrainPurchaseSalesData = {
         totalSale: 2585200.0,
         totalProfit: 811270.0,
         margin: 31.4,
+        avgProfit: 861.22,
     },
     'Organic Social': {
         nPurchased: 62,
@@ -99,6 +110,7 @@ window.CarBrainPurchaseSalesData = {
         totalSale: 158800.0,
         totalProfit: 54869.0,
         margin: 34.6,
+        avgProfit: 1097.38,
     },
     'PMax': {
         nPurchased: 1915,
@@ -111,6 +123,7 @@ window.CarBrainPurchaseSalesData = {
         totalSale: 4441300.0,
         totalProfit: 1344436.0,
         margin: 30.3,
+        avgProfit: 822.79,
     },
     'PPC Search': {
         nPurchased: 2785,
@@ -123,6 +136,7 @@ window.CarBrainPurchaseSalesData = {
         totalSale: 6864150.0,
         totalProfit: 2204816.0,
         margin: 32.1,
+        avgProfit: 876.67,
     },
     'Paid Social': {
         nPurchased: 606,
@@ -135,6 +149,7 @@ window.CarBrainPurchaseSalesData = {
         totalSale: 1085800.0,
         totalProfit: 285578.0,
         margin: 26.3,
+        avgProfit: 545.0,
     },
     'Referral': {
         nPurchased: 1178,
@@ -147,6 +162,7 @@ window.CarBrainPurchaseSalesData = {
         totalSale: 2140175.0,
         totalProfit: 670294.0,
         margin: 31.3,
+        avgProfit: 641.43,
     },
     'SEO': {
         nPurchased: 1844,
@@ -159,6 +175,7 @@ window.CarBrainPurchaseSalesData = {
         totalSale: 4535725.0,
         totalProfit: 1495677.0,
         margin: 33.0,
+        avgProfit: 923.83,
     },
     'Unknown': {
         nPurchased: 59,
@@ -171,6 +188,7 @@ window.CarBrainPurchaseSalesData = {
         totalSale: 96125.0,
         totalProfit: 23746.0,
         margin: 24.7,
+        avgProfit: 494.71,
     },
   },
 
@@ -186,6 +204,7 @@ window.CarBrainPurchaseSalesData = {
         totalSale: 483275.0,
         totalProfit: 139270.0,
         margin: 28.8,
+        avgProfit: 638.85,
     },
     'Brand': {
         nPurchased: 1104,
@@ -198,6 +217,7 @@ window.CarBrainPurchaseSalesData = {
         totalSale: 2561100.0,
         totalProfit: 867209.0,
         margin: 33.9,
+        avgProfit: 898.66,
     },
     'Damaged': {
         nPurchased: 352,
@@ -210,6 +230,7 @@ window.CarBrainPurchaseSalesData = {
         totalSale: 768675.0,
         totalProfit: 235983.0,
         margin: 30.7,
+        avgProfit: 696.12,
     },
     'Engine': {
         nPurchased: 620,
@@ -222,6 +243,7 @@ window.CarBrainPurchaseSalesData = {
         totalSale: 1742725.0,
         totalProfit: 563697.0,
         margin: 32.3,
+        avgProfit: 973.57,
     },
     'Junk': {
         nPurchased: 73,
@@ -234,6 +256,7 @@ window.CarBrainPurchaseSalesData = {
         totalSale: 108075.0,
         totalProfit: 27122.0,
         margin: 25.1,
+        avgProfit: 393.07,
     },
     'Non-Running': {
         nPurchased: 121,
@@ -246,6 +269,7 @@ window.CarBrainPurchaseSalesData = {
         totalSale: 270025.0,
         totalProfit: 86691.0,
         margin: 32.1,
+        avgProfit: 781.0,
     },
     'Other/Unmapped': {
         nPurchased: 5909,
@@ -258,6 +282,7 @@ window.CarBrainPurchaseSalesData = {
         totalSale: 12916425.0,
         totalProfit: 4027953.0,
         margin: 31.2,
+        avgProfit: 775.8,
     },
     'PMax General': {
         nPurchased: 313,
@@ -270,6 +295,7 @@ window.CarBrainPurchaseSalesData = {
         totalSale: 325750.0,
         totalProfit: 85880.0,
         margin: 26.4,
+        avgProfit: 367.01,
     },
     'PMax Priority': {
         nPurchased: 1125,
@@ -282,6 +308,7 @@ window.CarBrainPurchaseSalesData = {
         totalSale: 3292125.0,
         totalProfit: 1012224.0,
         margin: 30.7,
+        avgProfit: 1075.69,
     },
   },
 };

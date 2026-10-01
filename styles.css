@@ -161,3 +161,9 @@ footer .fetch-ts { font-style: italic; color: #B6C0CC; }
   .threshold-row { grid-template-columns: 90px 1fr 48px; }
   .threshold-right { display: none; }
 }
+
+.channel-card { background: #F7FAFC; border: 1px solid #E4E9F0; border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; }
+.channel-card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.channel-card-name { font-family: var(--font-secondary); font-weight: 800; font-size: 13.5px; color: var(--cb-deep-blue); }
+.channel-card-mix { font-size: 11.5px; font-weight: 700; color: #6B7A8F; background: #EEF2F7; padding: 2px 8px; border-radius: 10px; }
+.channel-card-bottom { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; flex-wrap: wrap; gap: 6px; }

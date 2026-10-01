@@ -245,6 +245,7 @@ function PurchaseSalesTab() {
 
   const o = data.overall;
   const sp = data.spSummary;
+  const gt = data.grandTotal;
 
   const segCols = [
     { label: 'Segment', get: ([n]) => n },
@@ -252,6 +253,7 @@ function PurchaseSalesTab() {
     { label: 'Avg Cost', get: ([, k]) => fmtMoney(k.avgCost) },
     { label: '# Sold', get: ([, k]) => fmtNum(k.nSold) },
     { label: 'Avg Sale', get: ([, k]) => fmtMoney(k.avgSale) },
+    { label: 'Avg Profit', get: ([, k]) => (k.avgProfit != null ? fmtMoney(k.avgProfit) : '—') },
     { label: 'Gross Margin', get: ([, k]) => (k.margin != null ? fmtPct(k.margin, 1) : '—') },
   ];
 
@@ -263,7 +265,23 @@ function PurchaseSalesTab() {
         </div>
       )}
 
-      <div className="section-label"><span className="dot" />PURCHASE &amp; SALES<span className="range"> — Parts + Priority + Premium, {data.asOf}</span></div>
+      <div className="section-label"><span className="dot" />TOTAL PURCHASES — ALL SEGMENTS<span className="range"> — every APC, {data.asOf}</span></div>
+      <div className="panels">
+        <div className="panel panel-dark" style={{ gridColumn: '1 / -1' }}><div className="panel-body">
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, marginBottom: 14 }}>
+            <span style={{ fontFamily: 'var(--font-secondary)', fontWeight: 900, fontSize: 34, color: 'var(--cb-white)' }}>{fmtNum(gt.nPurchased)}</span>
+            <span style={{ fontSize: 13, color: 'var(--cb-light-blue-200)' }}>total vehicles purchased, every segment</span>
+          </div>
+          <div className="tiles" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+            <StatCard label="SP" value={fmtNum(gt.bySegmentCount.SP)} sub={fmtPct((gt.bySegmentCount.SP / gt.nPurchased) * 100, 0)} />
+            <StatCard label="Parts" value={fmtNum(gt.bySegmentCount.Parts)} sub={fmtPct((gt.bySegmentCount.Parts / gt.nPurchased) * 100, 0)} />
+            <StatCard label="Priority" value={fmtNum(gt.bySegmentCount.Priority)} sub={fmtPct((gt.bySegmentCount.Priority / gt.nPurchased) * 100, 0)} />
+            <StatCard label="Premium" value={fmtNum(gt.bySegmentCount.Premium)} sub={fmtPct((gt.bySegmentCount.Premium / gt.nPurchased) * 100, 0)} />
+          </div>
+        </div></div>
+      </div>
+
+      <div className="section-label"><span className="dot" />AUCTION ECONOMICS — PARTS + PRIORITY + PREMIUM<span className="range"> — the {fmtNum(o.nPurchased)} of those {fmtNum(gt.nPurchased)} that go through Copart/IAA, {data.asOf}</span></div>
 
       <div className="tiles">
         <StatCard label="# Purchased" value={fmtNum(o.nPurchased)} sub={data.asOf} />
@@ -274,7 +292,7 @@ function PurchaseSalesTab() {
       <div className="tiles" style={{ marginTop: 10 }}>
         <StatCard label="# Sold" value={fmtNum(o.nSold)} sub={`${fmtPct((o.nSold / o.nPurchased) * 100, 0)} of purchased`} />
         <StatCard label="Average Sale Price" value={fmtMoney(o.avgSale)} sub="per vehicle" />
-        <StatCard label="High Sale" value={fmtMoney(o.highSale)} sub="single sale" />
+        <StatCard label="Average Profit" value={o.avgProfit != null ? fmtMoney(o.avgProfit) : '—'} sub="per vehicle sold" />
         <StatCard label="Gross Margin" value={fmtPct(o.margin, 1)} sub={`${fmtMoneyK(o.totalProfit)} GP / ${fmtMoneyK(o.totalSale)} sales`} />
       </div>
 
@@ -358,20 +376,29 @@ function Slider({ label, value, onChange, min, max, step, unit, disabled }) {
   );
 }
 
-function ThresholdBar({ name, actualPct, thresholdPct, rightLabel }) {
-  const clears = actualPct >= thresholdPct;
-  const scale = 60; // bar represents 0-60% visually
-  const fillPct = Math.min(100, (actualPct / scale) * 100);
-  const markerPct = Math.min(100, (thresholdPct / scale) * 100);
+function ChannelCard({ name, ppPct, assumedPR, targetCPL, ppUnitRate, nonPPUnitRate, rightLabel }) {
+  const profitPerUnit = (ppPct / 100) * ppUnitRate + (1 - ppPct / 100) * nonPPUnitRate;
+  const profitPerLead = profitPerUnit * (assumedPR / 100);
+  const clears = profitPerLead >= targetCPL;
+  const scale = Math.max(targetCPL * 2, profitPerLead * 1.3, 10);
+  const fillPct = Math.min(100, (profitPerLead / scale) * 100);
+  const markerPct = Math.min(100, (targetCPL / scale) * 100);
   return (
-    <div className="threshold-row">
-      <div className="threshold-name">{name}</div>
+    <div className="channel-card">
+      <div className="channel-card-top">
+        <div className="channel-card-name">{name}</div>
+        <div className="channel-card-mix">{ppPct.toFixed(1)}% P+P</div>
+      </div>
       <div className="threshold-track">
         <div className={`threshold-fill ${clears ? 'clears' : 'below'}`} style={{ width: `${fillPct}%` }} />
-        <div className="threshold-marker" style={{ left: `${markerPct}%` }} title={`Minimum needed: ${thresholdPct.toFixed(1)}%`} />
+        <div className="threshold-marker" style={{ left: `${markerPct}%` }} title={`Target CPL: $${targetCPL.toFixed(2)}`} />
       </div>
-      <div className={`threshold-value ${clears ? 'clears' : 'below'}`}>{actualPct.toFixed(1)}%</div>
-      {rightLabel && <div className="threshold-right">{rightLabel}</div>}
+      <div className="channel-card-bottom">
+        <span className={`threshold-value ${clears ? 'clears' : 'below'}`}>
+          Profit/Lead: ${profitPerLead.toFixed(2)} {clears ? '✓ clears' : '✗ below'} ${targetCPL.toFixed(2)} target
+        </span>
+        {rightLabel && <span className="threshold-right">{rightLabel}</span>}
+      </div>
     </div>
   );
 }
@@ -381,6 +408,7 @@ function ScenarioPredictorTab() {
   const [shares, setShares] = useState({ ...TODAY_SHARES });
   const [prs, setPrs] = useState({ ...TODAY_PRS });
   const [targetCPL, setTargetCPL] = useState(25);
+  const [assumedPR, setAssumedPR] = useState(5.89);
 
   const segments = ['SP', 'Parts', 'Priority', 'Premium', 'No Offers'];
   const totalShare = segments.reduce((a, s) => a + shares[s], 0);
@@ -403,14 +431,19 @@ function ScenarioPredictorTab() {
   const maintainCPL = profitPerLead / EFFICIENCY_RATIO;
   const maintainCPA = profitPerAPC != null ? profitPerAPC / EFFICIENCY_RATIO : null;
 
+  // Pure $/unit blends (no PR folded in) — used by the channel/theme cards below,
+  // where PR is a separate, adjustable variable (assumedPR), not fixed into the rate.
+  const ppUnitRate = 0.6995 * SEG_REFERENCE.Priority.profitUnit + 0.3005 * SEG_REFERENCE.Premium.profitUnit;
+  const nonPPUnitRate = 0.5246 * SEG_REFERENCE.SP.profitUnit + 0.4251 * SEG_REFERENCE.Parts.profitUnit + 0.0503 * 0;
+
   // Reverse: min P+P% needed for the target CPL, using today's Priority:Premium (70:30) and SP:Parts:NoOffers blend as the fixed internal split
-  const nonPPProfitPerLeadUnit = 0.5246 * (TODAY_PRS.SP / 100) * SEG_REFERENCE.SP.profitUnit
-    + 0.4251 * (TODAY_PRS.Parts / 100) * SEG_REFERENCE.Parts.profitUnit
-    + 0.0503 * 0;
   const ppProfitPerLeadUnit = 0.6995 * (TODAY_PRS.Priority / 100) * SEG_REFERENCE.Priority.profitUnit
     + 0.3005 * (TODAY_PRS.Premium / 100) * SEG_REFERENCE.Premium.profitUnit;
-  const minPPBreakeven = Math.max(0, ((targetCPL - nonPPProfitPerLeadUnit) / (ppProfitPerLeadUnit - nonPPProfitPerLeadUnit)) * 100);
-  const minPPMaintain = ((targetCPL * EFFICIENCY_RATIO - nonPPProfitPerLeadUnit) / (ppProfitPerLeadUnit - nonPPProfitPerLeadUnit)) * 100;
+  const nonPPProfitPerLeadUnitReal = 0.5246 * (TODAY_PRS.SP / 100) * SEG_REFERENCE.SP.profitUnit
+    + 0.4251 * (TODAY_PRS.Parts / 100) * SEG_REFERENCE.Parts.profitUnit
+    + 0.0503 * 0;
+  const minPPBreakeven = Math.max(0, ((targetCPL - nonPPProfitPerLeadUnitReal) / (ppProfitPerLeadUnit - nonPPProfitPerLeadUnitReal)) * 100);
+  const minPPMaintain = ((targetCPL * EFFICIENCY_RATIO - nonPPProfitPerLeadUnitReal) / (ppProfitPerLeadUnit - nonPPProfitPerLeadUnitReal)) * 100;
 
   const updateShare = (seg, val) => setShares(s => ({ ...s, [seg]: val }));
   const updatePR = (seg, val) => setPrs(p => ({ ...p, [seg]: val }));
@@ -428,7 +461,7 @@ function ScenarioPredictorTab() {
   return (
     <>
       <div className="alert-box" style={{ marginBottom: 18 }}>
-        <b>Measurement + projection, in one tool.</b> Set a lead volume and mix to project units and profit. Use the Target CPL below to see the minimum P+P% required — then check which real channels and themes already clear that bar.
+        <b>Measurement + projection, in one tool.</b> Set a lead volume and mix to project units and profit. Below, each real channel/theme's own Profit/Lead — mix × an adjustable Purchase Rate — is checked against your Target CPL. Mix is real data; PR is an assumption until we connect it per channel.
       </div>
 
       <div className="section-label"><span className="dot" />TOTAL LEAD VOLUME<span className="range"> — the base everything else scales from</span></div>
@@ -490,7 +523,7 @@ function ScenarioPredictorTab() {
         <StatCard label="Maintain-Efficiency CPA" value={maintainCPA != null ? fmtMoney(maintainCPA) : '—'} sub={`today's ${EFFICIENCY_RATIO}x ratio`} />
       </div>
 
-      <div className="section-label"><span className="dot" />SET A TARGET CPL → MINIMUM P+P% REQUIRED<span className="range"> — this becomes the threshold line in the bars below</span></div>
+      <div className="section-label"><span className="dot" />SET A TARGET CPL → MINIMUM P+P% REQUIRED<span className="range"> — reference only; the channel/theme cards below use their own Profit/Lead, not this %</span></div>
       <div className="panels">
         <div className="panel" style={{ gridColumn: '1 / -1' }}><div className="panel-body">
           <Slider label="Target CPL" value={targetCPL} onChange={setTargetCPL} min={1} max={60} step={0.5} unit="" />
@@ -501,14 +534,22 @@ function ScenarioPredictorTab() {
         </div></div>
       </div>
 
-      <div className="section-label"><span className="dot" />REALITY CHECK — BY CHANNEL<span className="range"> — actual P+P% vs. the breakeven line above (orange marker). 2026 data.</span></div>
+      <div className="section-label"><span className="dot" />ASSUMED PURCHASE RATE — FOR THE CARDS BELOW<span className="range"> — we don't have real PR by channel/theme yet; this applies to all of them until we do</span></div>
+      <div className="panels">
+        <div className="panel" style={{ gridColumn: '1 / -1' }}><div className="panel-body">
+          <Slider label="Assumed Purchase Rate" value={assumedPR} onChange={setAssumedPR} min={1} max={15} step={0.1} unit="%" />
+        </div></div>
+      </div>
+
+      <div className="section-label"><span className="dot" />REALITY CHECK — BY CHANNEL<span className="range"> — real P+P% × assumed PR = Profit/Lead, checked against Target CPL. 2026 data.</span></div>
       <div className="panels">
         <div className="panel" style={{ gridColumn: '1 / -1' }}><div className="panel-body">
           {[...CHANNEL_REALITY].sort((a, b) => b.ppPct - a.ppPct).map(c => (
-            <ThresholdBar key={c.name} name={c.name} actualPct={c.ppPct} thresholdPct={minPPBreakeven}
+            <ChannelCard key={c.name} name={c.name} ppPct={c.ppPct} assumedPR={assumedPR} targetCPL={targetCPL}
+              ppUnitRate={ppUnitRate} nonPPUnitRate={nonPPUnitRate}
               rightLabel={`≈ ${fmtNum(totalLeads * c.apcShare * (blendedPR || 0.059))} units if scaled to ${fmtNum(totalLeads)} leads`} />
           ))}
-          <div className="note" style={{ marginTop: 10 }}>CPL by channel isn't connected yet — bars above compare mix quality (P+P%) only. Flag if that's the next priority.</div>
+          <div className="note" style={{ marginTop: 10 }}>CPL by channel isn't connected yet, and Purchase Rate above is a shared assumption, not each channel's real rate. Flag if connecting either is the next priority.</div>
         </div></div>
       </div>
 
@@ -516,7 +557,8 @@ function ScenarioPredictorTab() {
       <div className="panels">
         <div className="panel" style={{ gridColumn: '1 / -1' }}><div className="panel-body">
           {[...THEME_REALITY].sort((a, b) => b.ppPct - a.ppPct).map(t => (
-            <ThresholdBar key={t.name} name={t.name} actualPct={t.ppPct} thresholdPct={minPPBreakeven}
+            <ChannelCard key={t.name} name={t.name} ppPct={t.ppPct} assumedPR={assumedPR} targetCPL={targetCPL}
+              ppUnitRate={ppUnitRate} nonPPUnitRate={nonPPUnitRate}
               rightLabel={`≈ ${fmtNum(totalLeads * t.apcShare * (blendedPR || 0.059))} units if scaled to ${fmtNum(totalLeads)} leads`} />
           ))}
         </div></div>
