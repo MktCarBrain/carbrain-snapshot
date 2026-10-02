@@ -376,30 +376,201 @@ function Slider({ label, value, onChange, min, max, step, unit, disabled }) {
   );
 }
 
-function ChannelCard({ name, ppPct, assumedPR, targetCPL, ppUnitRate, nonPPUnitRate, rightLabel }) {
-  const profitPerUnit = (ppPct / 100) * ppUnitRate + (1 - ppPct / 100) * nonPPUnitRate;
-  const profitPerLead = profitPerUnit * (assumedPR / 100);
-  const clears = profitPerLead >= targetCPL;
-  const scale = Math.max(targetCPL * 2, profitPerLead * 1.3, 10);
-  const fillPct = Math.min(100, (profitPerLead / scale) * 100);
+// ─── Per-channel / per-theme projection ──────────────────
+// Each channel carries its own lead volume, segment mix (share of leads) and
+// per-segment PR. Units = leads × share × PR; profit = units × Profit/Unit.
+// So a richer P+P mix raises both profit and the CPL/CPA it can afford.
+const SEGMENTS = ['SP', 'Parts', 'Priority', 'Premium', 'No Offers'];
+const PR_SEGMENTS = ['SP', 'Parts', 'Priority', 'Premium'];
+const THEME_LEAD_BASE = 7297 / 19389; // paid-search themes' share of all APCs, used as their default share of leads
+
+// The real P+P% we have per channel is a share of its APCs. Convert it to a
+// share-of-leads mix: split each side using today's APC proportions, then
+// divide by each segment's PR (APC share / PR ∝ lead share). At today's
+// blended P+P% this returns TODAY_SHARES.
+function mixFromPP(ppPct) {
+  const apc = s => TODAY_SHARES[s] * TODAY_PRS[s];
+  const ppAPC = apc('Priority') + apc('Premium');
+  const nonAPC = apc('SP') + apc('Parts');
+  const p = ppPct / 100;
+  const apcMix = {
+    Priority: p * apc('Priority') / ppAPC,
+    Premium: p * apc('Premium') / ppAPC,
+    SP: (1 - p) * apc('SP') / nonAPC,
+    Parts: (1 - p) * apc('Parts') / nonAPC,
+  };
+  const raw = {};
+  PR_SEGMENTS.forEach(s => { raw[s] = apcMix[s] / TODAY_PRS[s]; });
+  const sum = PR_SEGMENTS.reduce((a, s) => a + raw[s], 0);
+  const noOffers = TODAY_SHARES['No Offers'];
+  const shares = { 'No Offers': noOffers };
+  PR_SEGMENTS.forEach(s => { shares[s] = Math.round((raw[s] / sum) * (100 - noOffers) * 10) / 10; });
+  return shares;
+}
+
+function projectMix({ leads, shares, prs }) {
+  const bySeg = SEGMENTS.map(seg => {
+    const pr = seg === 'No Offers' ? 0 : prs[seg];
+    const units = leads * (shares[seg] / 100) * (pr / 100);
+    return { seg, units, profit: units * SEG_REFERENCE[seg].profitUnit };
+  });
+  const units = bySeg.reduce((a, d) => a + d.units, 0);
+  const profit = bySeg.reduce((a, d) => a + d.profit, 0);
+  const ppUnits = bySeg.filter(d => d.seg === 'Priority' || d.seg === 'Premium').reduce((a, d) => a + d.units, 0);
+  const breakevenCPL = leads > 0 ? profit / leads : 0;
+  const breakevenCPA = units > 0 ? profit / units : null;
+  return {
+    bySeg, units, profit,
+    pr: leads > 0 ? (units / leads) * 100 : 0,
+    ppLeadShare: shares.Priority + shares.Premium,
+    ppAPCShare: units > 0 ? (ppUnits / units) * 100 : 0,
+    breakevenCPL, breakevenCPA,
+    maintainCPL: breakevenCPL / EFFICIENCY_RATIO,
+    maintainCPA: breakevenCPA != null ? breakevenCPA / EFFICIENCY_RATIO : null,
+  };
+}
+
+// Default config per row: mix from its real P+P%, PRs from the global sliders,
+// and leads split from baseLeads in proportion to APC share / blended PR.
+function buildDefaults(rows, baseLeads, prs) {
+  const pre = rows.map(r => {
+    const shares = mixFromPP(r.ppPct);
+    const pr = projectMix({ leads: 1, shares, prs }).pr || TODAY_PRS.SP;
+    return { r, shares, weight: r.apcShare / pr };
+  });
+  const totalW = pre.reduce((a, x) => a + x.weight, 0) || 1;
+  const out = {};
+  pre.forEach(({ r, shares, weight }) => {
+    out[r.name] = { leads: Math.round(baseLeads * weight / totalW), shares, prs: { ...prs } };
+  });
+  return out;
+}
+
+function MixBar({ shares }) {
+  return (
+    <div className="mix-bar">
+      {SEGMENTS.map(seg => shares[seg] > 0 && (
+        <div key={seg} style={{ width: `${shares[seg]}%`, background: SEG_REFERENCE[seg].color }} title={`${seg}: ${shares[seg].toFixed(1)}% of leads`} />
+      ))}
+    </div>
+  );
+}
+
+function ChannelCard({ name, realPP, cfg, isEdited, onChange, onReset, targetCPL }) {
+  const [open, setOpen] = useState(false);
+  const p = projectMix(cfg);
+  const clears = p.breakevenCPL >= targetCPL;
+  const scale = Math.max(targetCPL * 2, p.breakevenCPL * 1.3, 10);
+  const fillPct = Math.min(100, (p.breakevenCPL / scale) * 100);
   const markerPct = Math.min(100, (targetCPL / scale) * 100);
+  const maintainPct = Math.min(100, (p.maintainCPL / scale) * 100);
+  const shareTotal = SEGMENTS.reduce((a, s) => a + cfg.shares[s], 0);
+  const setShare = (seg, v) => onChange({ ...cfg, shares: { ...cfg.shares, [seg]: v } });
+  const setPR = (seg, v) => onChange({ ...cfg, prs: { ...cfg.prs, [seg]: v } });
+
   return (
     <div className="channel-card">
       <div className="channel-card-top">
-        <div className="channel-card-name">{name}</div>
-        <div className="channel-card-mix">{ppPct.toFixed(1)}% P+P</div>
+        <div className="channel-card-name">{name}{isEdited && <span className="edited-chip">edited</span>}</div>
+        <div className="channel-card-mix" title={`Real data: ${realPP.toFixed(1)}% of this channel's APCs are P+P`}>
+          P+P {fmtPct(p.ppLeadShare, 1)} of leads · {fmtPct(p.ppAPCShare, 1)} of APCs
+        </div>
       </div>
+      <MixBar shares={cfg.shares} />
+
+      <div className="chan-metrics">
+        <div><span>Leads</span><b>{fmtNum(cfg.leads)}</b></div>
+        <div><span>Units (PR {fmtPct(p.pr, 2)})</span><b>{fmtNum(p.units)}</b></div>
+        <div><span>Gross Profit</span><b>{fmtMoneyK(p.profit)}</b></div>
+        <div><span>Breakeven CPL</span><b>{fmtMoney(p.breakevenCPL)}</b></div>
+        <div><span>Maintain CPL</span><b>{fmtMoney(p.maintainCPL)}</b></div>
+        <div><span>Breakeven CPA</span><b>{p.breakevenCPA != null ? fmtMoney(p.breakevenCPA) : '—'}</b></div>
+        <div><span>Maintain CPA</span><b>{p.maintainCPA != null ? fmtMoney(p.maintainCPA) : '—'}</b></div>
+      </div>
+
       <div className="threshold-track">
         <div className={`threshold-fill ${clears ? 'clears' : 'below'}`} style={{ width: `${fillPct}%` }} />
+        <div className="threshold-maintain" style={{ left: `${maintainPct}%` }} title={`Maintain-efficiency CPL: ${fmtMoney(p.maintainCPL)}`} />
         <div className="threshold-marker" style={{ left: `${markerPct}%` }} title={`Target CPL: $${targetCPL.toFixed(2)}`} />
       </div>
       <div className="channel-card-bottom">
         <span className={`threshold-value ${clears ? 'clears' : 'below'}`}>
-          Profit/Lead: ${profitPerLead.toFixed(2)} {clears ? '✓ clears' : '✗ below'} ${targetCPL.toFixed(2)} target
+          Can pay up to {fmtMoney(p.breakevenCPL)}/lead {clears ? '✓ clears' : '✗ below'} ${targetCPL.toFixed(2)} target
         </span>
-        {rightLabel && <span className="threshold-right">{rightLabel}</span>}
+        <span>
+          <button className="dl-btn" onClick={() => setOpen(o => !o)}>{open ? '▴ Hide mix' : '▾ Edit leads, mix & PR'}</button>
+          {isEdited && <button className="dl-btn" style={{ marginLeft: 6 }} onClick={onReset}>↺ Reset</button>}
+        </span>
       </div>
+
+      {open && (
+        <div className="chan-edit">
+          <div className="chan-edit-leads">
+            <label>Leads for {name}</label>
+            <input type="number" className="number-input" value={cfg.leads} step={500}
+              onChange={e => onChange({ ...cfg, leads: Math.max(0, parseInt(e.target.value) || 0) })} />
+          </div>
+          <div className="chan-edit-grid">
+            {SEGMENTS.map(seg => {
+              const d = p.bySeg.find(x => x.seg === seg);
+              return (
+                <div key={seg} className="scenario-seg-card" style={{ borderLeftColor: SEG_REFERENCE[seg].color }}>
+                  <div className="scenario-seg-name">{seg}</div>
+                  <Slider label="Share of Leads" value={cfg.shares[seg]} onChange={v => setShare(seg, v)} min={0} max={100} step={0.5} unit="%" />
+                  <Slider label="Purchase Rate" value={seg === 'No Offers' ? 0 : cfg.prs[seg]} onChange={v => setPR(seg, v)} min={0} max={15} step={0.1} unit="%" disabled={seg === 'No Offers'} />
+                  <div className="scenario-predicted">
+                    <div><span>Units</span><b>{fmtNum(d.units)}</b></div>
+                    <div><span>Profit</span><b>{fmtMoneyK(d.profit)}</b></div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className={`total-share-indicator ${Math.abs(shareTotal - 100) < 0.3 ? 'ok' : 'warn'}`}>
+            Mix total: <b>{shareTotal.toFixed(1)}%</b> {Math.abs(shareTotal - 100) < 0.3 ? '✓' : '— should sum to 100%'}
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+function ChannelPlan({ title, range, rows, defaults, overrides, setOverrides, targetCPL, note }) {
+  const cfgFor = name => ({ ...defaults[name], ...(overrides[name] || {}) });
+  const totals = rows.reduce((acc, r) => {
+    const cfg = cfgFor(r.name);
+    const p = projectMix(cfg);
+    acc.leads += cfg.leads; acc.units += p.units; acc.profit += p.profit;
+    return acc;
+  }, { leads: 0, units: 0, profit: 0 });
+  const sorted = [...rows].sort((a, b) => projectMix(cfgFor(b.name)).breakevenCPL - projectMix(cfgFor(a.name)).breakevenCPL);
+
+  return (
+    <>
+      <div className="section-label"><span className="dot" />{title}<span className="range"> — {range}</span></div>
+      <div className="tiles">
+        <StatCard label="Leads in plan" value={fmtNum(totals.leads)} sub="sum of the cards below" />
+        <StatCard label="Units (APC)" value={fmtNum(totals.units)} sub={`${fmtPct(totals.leads ? (totals.units / totals.leads) * 100 : 0, 2)} blended PR`} />
+        <StatCard label="Gross Profit" value={fmtMoneyK(totals.profit)} sub="sum of the cards below" />
+        <StatCard label="Blended Breakeven CPL" value={fmtMoney(totals.leads ? totals.profit / totals.leads : 0)} sub={`CPA ${totals.units ? fmtMoney(totals.profit / totals.units) : '—'}`} />
+      </div>
+      <div className="panels">
+        <div className="panel" style={{ gridColumn: '1 / -1' }}><div className="panel-body">
+          {sorted.map(r => (
+            <ChannelCard key={r.name} name={r.name} realPP={r.ppPct} cfg={cfgFor(r.name)} targetCPL={targetCPL}
+              isEdited={!!overrides[r.name]}
+              onChange={cfg => setOverrides(o => ({ ...o, [r.name]: cfg }))}
+              onReset={() => setOverrides(o => { const n = { ...o }; delete n[r.name]; return n; })} />
+          ))}
+          <div className="mix-legend">
+            {SEGMENTS.map(seg => <span key={seg}><i style={{ background: SEG_REFERENCE[seg].color }} />{seg}</span>)}
+            <span><i className="legend-target" />Target CPL</span>
+            <span><i className="legend-maintain" />Maintain-efficiency CPL</span>
+          </div>
+          {note && <div className="note" style={{ marginTop: 10 }}>{note}</div>}
+        </div></div>
+      </div>
+    </>
   );
 }
 
@@ -408,7 +579,8 @@ function ScenarioPredictorTab() {
   const [shares, setShares] = useState({ ...TODAY_SHARES });
   const [prs, setPrs] = useState({ ...TODAY_PRS });
   const [targetCPL, setTargetCPL] = useState(25);
-  const [assumedPR, setAssumedPR] = useState(5.89);
+  const [channelOverrides, setChannelOverrides] = useState({});
+  const [themeOverrides, setThemeOverrides] = useState({});
 
   const segments = ['SP', 'Parts', 'Priority', 'Premium', 'No Offers'];
   const totalShare = segments.reduce((a, s) => a + shares[s], 0);
@@ -431,10 +603,8 @@ function ScenarioPredictorTab() {
   const maintainCPL = profitPerLead / EFFICIENCY_RATIO;
   const maintainCPA = profitPerAPC != null ? profitPerAPC / EFFICIENCY_RATIO : null;
 
-  // Pure $/unit blends (no PR folded in) — used by the channel/theme cards below,
-  // where PR is a separate, adjustable variable (assumedPR), not fixed into the rate.
-  const ppUnitRate = 0.6995 * SEG_REFERENCE.Priority.profitUnit + 0.3005 * SEG_REFERENCE.Premium.profitUnit;
-  const nonPPUnitRate = 0.5246 * SEG_REFERENCE.SP.profitUnit + 0.4251 * SEG_REFERENCE.Parts.profitUnit + 0.0503 * 0;
+  const channelDefaults = buildDefaults(CHANNEL_REALITY, totalLeads, prs);
+  const themeDefaults = buildDefaults(THEME_REALITY, Math.round(totalLeads * THEME_LEAD_BASE), prs);
 
   // Reverse: min P+P% needed for the target CPL, using today's Priority:Premium (70:30) and SP:Parts:NoOffers blend as the fixed internal split
   const ppProfitPerLeadUnit = 0.6995 * (TODAY_PRS.Priority / 100) * SEG_REFERENCE.Priority.profitUnit
@@ -461,7 +631,7 @@ function ScenarioPredictorTab() {
   return (
     <>
       <div className="alert-box" style={{ marginBottom: 18 }}>
-        <b>Measurement + projection, in one tool.</b> Set a lead volume and mix to project units and profit. Below, each real channel/theme's own Profit/Lead — mix × an adjustable Purchase Rate — is checked against your Target CPL. Mix is real data; PR is an assumption until we connect it per channel.
+        <b>Measurement + projection, in one tool.</b> Set a lead volume and mix to project units and profit. Below, every channel and theme gets its own leads, segment mix and PR, so each one projects its own units, gross profit and the CPL/CPA it can afford, checked against your Target CPL. P+P% per channel is real data; the rest of each mix and the PRs are today's blend until you edit a card.
       </div>
 
       <div className="section-label"><span className="dot" />TOTAL LEAD VOLUME<span className="range"> — the base everything else scales from</span></div>
@@ -534,35 +704,18 @@ function ScenarioPredictorTab() {
         </div></div>
       </div>
 
-      <div className="section-label"><span className="dot" />ASSUMED PURCHASE RATE — FOR THE CARDS BELOW<span className="range"> — we don't have real PR by channel/theme yet; this applies to all of them until we do</span></div>
-      <div className="panels">
-        <div className="panel" style={{ gridColumn: '1 / -1' }}><div className="panel-body">
-          <Slider label="Assumed Purchase Rate" value={assumedPR} onChange={setAssumedPR} min={1} max={15} step={0.1} unit="%" />
-        </div></div>
-      </div>
+      <ChannelPlan
+        title="BY CHANNEL — EACH WITH ITS OWN LEADS, MIX & PR"
+        range={`leads split from ${fmtNum(totalLeads)}; mix from each channel's real 2026 P+P%; PR from the segment sliders above until edited`}
+        rows={CHANNEL_REALITY} defaults={channelDefaults} overrides={channelOverrides} setOverrides={setChannelOverrides}
+        targetCPL={targetCPL}
+        note="Default mix comes from each channel's real P+P share of APCs, converted to share of leads. SP/Parts and Priority/Premium splits and PRs per segment are today's blend until we have them per channel — open a card to set them. More P+P in the mix → more profit per lead → a higher CPL/CPA the channel can afford." />
 
-      <div className="section-label"><span className="dot" />REALITY CHECK — BY CHANNEL<span className="range"> — real P+P% × assumed PR = Profit/Lead, checked against Target CPL. 2026 data.</span></div>
-      <div className="panels">
-        <div className="panel" style={{ gridColumn: '1 / -1' }}><div className="panel-body">
-          {[...CHANNEL_REALITY].sort((a, b) => b.ppPct - a.ppPct).map(c => (
-            <ChannelCard key={c.name} name={c.name} ppPct={c.ppPct} assumedPR={assumedPR} targetCPL={targetCPL}
-              ppUnitRate={ppUnitRate} nonPPUnitRate={nonPPUnitRate}
-              rightLabel={`≈ ${fmtNum(totalLeads * c.apcShare * (blendedPR || 0.059))} units if scaled to ${fmtNum(totalLeads)} leads`} />
-          ))}
-          <div className="note" style={{ marginTop: 10 }}>CPL by channel isn't connected yet, and Purchase Rate above is a shared assumption, not each channel's real rate. Flag if connecting either is the next priority.</div>
-        </div></div>
-      </div>
-
-      <div className="section-label"><span className="dot" />REALITY CHECK — BY THEME<span className="range"> — paid search themes only. Jan–Aug 2026 vs. 2025.</span></div>
-      <div className="panels">
-        <div className="panel" style={{ gridColumn: '1 / -1' }}><div className="panel-body">
-          {[...THEME_REALITY].sort((a, b) => b.ppPct - a.ppPct).map(t => (
-            <ChannelCard key={t.name} name={t.name} ppPct={t.ppPct} assumedPR={assumedPR} targetCPL={targetCPL}
-              ppUnitRate={ppUnitRate} nonPPUnitRate={nonPPUnitRate}
-              rightLabel={`≈ ${fmtNum(totalLeads * t.apcShare * (blendedPR || 0.059))} units if scaled to ${fmtNum(totalLeads)} leads`} />
-          ))}
-        </div></div>
-      </div>
+      <ChannelPlan
+        title="BY THEME — PAID SEARCH"
+        range={`leads split from ~${fmtNum(totalLeads * THEME_LEAD_BASE)} paid-search leads; mix from each theme's real P+P%`}
+        rows={THEME_REALITY} defaults={themeDefaults} overrides={themeOverrides} setOverrides={setThemeOverrides}
+        targetCPL={targetCPL} />
     </>
   );
 }

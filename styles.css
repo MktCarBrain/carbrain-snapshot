@@ -167,3 +167,27 @@ footer .fetch-ts { font-style: italic; color: #B6C0CC; }
 .channel-card-name { font-family: var(--font-secondary); font-weight: 800; font-size: 13.5px; color: var(--cb-deep-blue); }
 .channel-card-mix { font-size: 11.5px; font-weight: 700; color: #6B7A8F; background: #EEF2F7; padding: 2px 8px; border-radius: 10px; }
 .channel-card-bottom { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; flex-wrap: wrap; gap: 6px; }
+
+/* Per-channel projection cards */
+.mix-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: #EEF2F7; margin: 4px 0 10px; }
+.mix-bar > div { height: 100%; transition: width .2s ease; }
+.chan-metrics { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; margin-bottom: 10px; }
+.chan-metrics > div { display: flex; flex-direction: column; font-size: 10.5px; color: #6B7A8F; font-weight: 600; }
+.chan-metrics b { font-size: 14px; color: var(--cb-deep-blue); font-family: var(--font-secondary); font-weight: 800; margin-top: 2px; }
+.threshold-maintain { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--cb-deep-blue); opacity: .55; }
+.edited-chip { font-size: 10px; font-weight: 700; color: #8B3A1A; background: #FFF1EE; border-radius: 8px; padding: 1px 7px; margin-left: 8px; vertical-align: middle; }
+.chan-edit { margin-top: 12px; padding-top: 12px; border-top: 1px dashed #D5DEE8; }
+.chan-edit-leads { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.chan-edit-leads label { font-weight: 700; font-size: 12.5px; color: var(--cb-deep-blue); }
+.chan-edit-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+.chan-edit-grid .scenario-seg-card { background: var(--cb-white); padding: 10px; }
+.mix-legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 11px; color: #6B7A8F; margin-top: 6px; }
+.mix-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.mix-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.mix-legend i.legend-target { width: 3px; height: 12px; background: #D9730D; border-radius: 0; }
+.mix-legend i.legend-maintain { width: 2px; height: 12px; background: var(--cb-deep-blue); opacity: .55; border-radius: 0; }
+
+@media (max-width: 760px) {
+  .chan-metrics { grid-template-columns: repeat(3, 1fr); }
+  .chan-edit-grid { grid-template-columns: 1fr 1fr; }
+}
